@@ -16,495 +16,393 @@ Original file is located at
     https://colab.research.google.com/drive/1iXLf6KzPizcsduMloKoIfk5kNxTsFiTh
 """
 
-import os
-import io
-
 import streamlit as st
-import numpy as np
-import pandas as pd
 import pickle
-import cv2
-from PIL import Image
-import matplotlib.pyplot as plt
-from sklearn.metrics.pairwise import cosine_similarity
+import os
+import numpy as np
 
-# =========================================================
-# PAGE CONFIG
-# =========================================================
+# ============================================================
+# KONFIGURASI HALAMAN
+# ============================================================
 st.set_page_config(
     page_title="Face PCA Studio",
-    page_icon="🪞",
+    page_icon="🧑‍🤝‍🧑",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="expanded"
 )
 
-# =========================================================
-# CUSTOM CSS — colorful, lively theme
-# =========================================================
-def inject_css():
-    st.markdown(
-        """
-        <style>
-        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap');
-
-        html, body, [class*="css"] {
-            font-family: 'Poppins', sans-serif;
-        }
-
-        .stApp {
-            background: linear-gradient(135deg, #f5f7ff 0%, #eef2ff 45%, #fdf2ff 100%);
-        }
-
-        section[data-testid="stSidebar"] {
-            background: linear-gradient(180deg, #4338ca 0%, #7c3aed 55%, #db2777 100%);
-        }
-        section[data-testid="stSidebar"] * {
-            color: #ffffff !important;
-        }
-        section[data-testid="stSidebar"] label {
-            background: rgba(255,255,255,0.08);
-            border-radius: 12px;
-            padding: 10px 14px;
-            margin-bottom: 6px;
-            border: 1px solid rgba(255,255,255,0.15);
-            transition: all 0.2s ease;
-        }
-        section[data-testid="stSidebar"] label:hover {
-            background: rgba(255,255,255,0.22);
-            transform: translateX(4px);
-        }
-        section[data-testid="stSidebar"] hr {
-            border-color: rgba(255,255,255,0.25);
-        }
-
-        .hero {
-            padding: 2.1rem 2rem;
-            border-radius: 22px;
-            background: linear-gradient(120deg, #6366f1, #a855f7, #ec4899);
-            color: white;
-            margin-bottom: 1.6rem;
-            box-shadow: 0 10px 30px rgba(99,102,241,0.25);
-        }
-        .hero h1 { margin: 0; font-weight: 800; font-size: 2.0rem; }
-        .hero p { margin-top: 0.5rem; font-size: 1.02rem; opacity: 0.95; }
-
-        .badge {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 999px;
-            font-size: 0.78rem;
-            font-weight: 600;
-            margin-bottom: 0.6rem;
-        }
-        .badge-purple { background: #ede9fe; color: #6d28d9; }
-        .badge-pink   { background: #fce7f3; color: #be185d; }
-        .badge-blue   { background: #dbeafe; color: #1d4ed8; }
-        .badge-green  { background: #dcfce7; color: #15803d; }
-
-        div[data-testid="stMetric"] {
-            background: white;
-            border-radius: 14px;
-            padding: 0.8rem 1rem;
-            box-shadow: 0 4px 14px rgba(0,0,0,0.06);
-        }
-
-        .stButton > button {
-            border-radius: 12px;
-            font-weight: 600;
-            background: linear-gradient(120deg, #6366f1, #ec4899);
-            color: white;
-            border: none;
-            padding: 0.6rem 1.4rem;
-            transition: all 0.2s ease;
-        }
-        .stButton > button:hover {
-            transform: scale(1.03);
-            box-shadow: 0 8px 18px rgba(99,102,241,0.35);
-        }
-
-        div[data-testid="stFileUploader"] {
-            background: white;
-            border-radius: 14px;
-            padding: 0.6rem;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-inject_css()
-
-# =========================================================
-# LOAD MODEL
-# =========================================================
-MODEL_CANDIDATES = [
-    "model/model_with_me.pkl",
-    "model_with_me.pkl",
-]
-
+# ============================================================
+# LOAD MODEL (untuk statistik di Home)
+# ============================================================
+MODEL_PATH = "model/model.pkl"  # sesuaikan dengan lokasi model kamu
 
 @st.cache_resource
 def load_model():
-    for path in MODEL_CANDIDATES:
-        if os.path.exists(path):
-            with open(path, "rb") as f:
-                return pickle.load(f)
+    if os.path.exists(MODEL_PATH):
+        with open(MODEL_PATH, "rb") as f:
+            data = pickle.load(f)
+        return data
     return None
 
+model_data = load_model()
 
-model = load_model()
+# Ambil statistik dari model, fallback ke 0 kalau model belum ada
+if model_data is not None:
+    n_components = model_data["pca"].n_components_
+    n_identitas = len(np.unique(model_data["labels"]))
+    n_total_foto = len(model_data["labels"])
+else:
+    n_components, n_identitas, n_total_foto = 0, 0, 0
 
-if model is None:
-    st.error(
-        "⚠️ File `model_with_me.pkl` tidak ditemukan. Pastikan file berada di "
-        "root project atau di folder `model/`."
-    )
-    st.stop()
+# ============================================================
+# SESSION STATE UNTUK NAVIGASI
+# ============================================================
+if "page" not in st.session_state:
+    st.session_state.page = "Home"
 
-pca = model.get("pca")
-X_train_pca = model.get("X_train_pca")
-y_train = model.get("y_train")
-X_test_pca = model.get("X_test_pca")
-y_test = model.get("y_test")
-labels_all = model.get("labels")
+def go_to(page_name):
+    st.session_state.page = page_name
 
+# ============================================================
+# CSS CUSTOM — REPLIKASI DESAIN DARK BLUE
+# ============================================================
+st.markdown("""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap');
 
-# =========================================================
-# HELPERS
-# =========================================================
-def preprocess(img_bytes):
-    img = Image.open(io.BytesIO(img_bytes)).convert("L")
-    img_arr = np.array(img)
-    img_eq = cv2.equalizeHist(img_arr)
-    img_blur = cv2.GaussianBlur(img_eq, (3, 3), 0)
-    img_resized = cv2.resize(img_blur, (100, 100))
-    return img_resized.flatten() / 255.0
+    html, body, [class*="css"] {
+        font-family: 'Poppins', sans-serif;
+    }
 
+    /* Background gradient utama */
+    .stApp {
+        background: linear-gradient(135deg, #1a1f4d 0%, #2d3480 50%, #4147a3 100%);
+    }
 
-def svd_compress_gray(img_arr, k):
-    U, S, Vt = np.linalg.svd(img_arr, full_matrices=False)
-    k = min(k, len(S))
-    reconstructed = (U[:, :k] * S[:k]) @ Vt[:k, :]
-    reconstructed = np.clip(reconstructed, 0, 255).astype(np.uint8)
-    return reconstructed, S
+    /* Sembunyikan header & footer default streamlit */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
 
+    /* Sidebar styling */
+    section[data-testid="stSidebar"] {
+        background: #131635;
+        border-right: 1px solid rgba(255,255,255,0.08);
+    }
+    section[data-testid="stSidebar"] > div {
+        padding-top: 1.5rem;
+    }
 
-def svd_compress_color(img_arr, k):
-    channels = []
-    s_values = None
-    for c in range(3):
-        ch = img_arr[:, :, c].astype(float)
-        U, S, Vt = np.linalg.svd(ch, full_matrices=False)
-        k_ = min(k, len(S))
-        rec = (U[:, :k_] * S[:k_]) @ Vt[:k_, :]
-        channels.append(np.clip(rec, 0, 255))
-        if s_values is None:
-            s_values = S
-    reconstructed = np.stack(channels, axis=2).astype(np.uint8)
-    return reconstructed, s_values
+    /* Sidebar nav buttons */
+    .nav-btn-container .stButton button {
+        background: transparent;
+        border: none;
+        color: rgba(255,255,255,0.55);
+        font-size: 1.4rem;
+        width: 100%;
+        padding: 0.65rem 0;
+        border-radius: 10px;
+        transition: all 0.2s ease;
+    }
+    .nav-btn-container .stButton button:hover {
+        background: rgba(255,255,255,0.08);
+        color: #ffffff;
+    }
 
+    /* Card umum */
+    .card {
+        background: rgba(20, 24, 61, 0.55);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 18px;
+        padding: 1.5rem 1.8rem;
+    }
 
-# =========================================================
-# SIDEBAR NAVIGATION
-# =========================================================
+    .card-dark {
+        background: rgba(10, 13, 40, 0.65);
+        border-radius: 18px;
+        padding: 1.5rem 1.8rem;
+        border: 1px solid rgba(255,255,255,0.06);
+    }
+
+    /* About badge */
+    .about-badge {
+        background: #2dd4bf;
+        color: #0a0d28;
+        font-weight: 700;
+        font-size: 0.7rem;
+        padding: 0.25rem 0.7rem;
+        border-radius: 6px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        letter-spacing: 0.05em;
+    }
+
+    .title-pill {
+        background: rgba(20, 24, 61, 0.7);
+        border-radius: 20px;
+        padding: 1rem 2rem;
+        text-align: center;
+        border: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .title-pill h1 {
+        color: white;
+        font-size: 2.1rem;
+        font-weight: 800;
+        margin: 0;
+        letter-spacing: 0.02em;
+    }
+
+    /* Stat number cards */
+    .stat-box {
+        background: rgba(10, 13, 40, 0.6);
+        border-radius: 14px;
+        padding: 1rem 1.2rem;
+        text-align: center;
+        border: 1px solid rgba(255,255,255,0.06);
+    }
+    .stat-label {
+        color: rgba(255,255,255,0.65);
+        font-size: 0.78rem;
+        font-weight: 500;
+        margin-bottom: 0.3rem;
+    }
+    .stat-value {
+        color: white;
+        font-size: 2.3rem;
+        font-weight: 700;
+        line-height: 1;
+    }
+
+    /* Feature card kiri bawah (clickable) */
+    .feature-card {
+        background: rgba(10, 13, 40, 0.6);
+        border-radius: 16px;
+        padding: 1.1rem 1.3rem;
+        border: 1px solid rgba(255,255,255,0.07);
+        margin-bottom: 0.9rem;
+        transition: all 0.2s ease;
+        cursor: pointer;
+    }
+    .feature-card:hover {
+        background: rgba(45, 212, 191, 0.12);
+        border-color: rgba(45, 212, 191, 0.4);
+    }
+    .feature-title {
+        color: white;
+        font-size: 1.05rem;
+        font-weight: 600;
+        margin-bottom: 0.2rem;
+    }
+    .feature-desc {
+        color: rgba(255,255,255,0.6);
+        font-size: 0.82rem;
+        line-height: 1.4;
+    }
+
+    .section-heading {
+        color: white;
+        font-size: 1.3rem;
+        font-weight: 700;
+        margin-bottom: 0.6rem;
+    }
+    .section-text {
+        color: rgba(255,255,255,0.75);
+        font-size: 0.95rem;
+        line-height: 1.7;
+    }
+
+    /* Feature card button override (full width, transparent) */
+    div[data-testid="stVerticalBlockBorderWrapper"] .stButton button {
+        width: 100%;
+        background: transparent;
+        border: none;
+        color: white;
+        text-align: left;
+        padding: 0;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# ============================================================
+# SIDEBAR — ICON NAVIGASI
+# ============================================================
 with st.sidebar:
-    st.markdown("## 🪞 Face PCA Studio")
-    st.caption("Eksplorasi wajah dengan PCA & SVD")
-    st.markdown("---")
-    page = st.radio(
-        "Navigasi",
-        [
-            "🏠 Home",
-            "📊 EDA & Visualisasi",
-            "🔍 Bandingkan Dua Wajah",
-            "🗜️ Kompresi Gambar (SVD)",
-        ],
-        label_visibility="collapsed",
-    )
-    st.markdown("---")
-    st.caption("Dibuat dengan Streamlit + scikit-learn")
+    st.markdown("<div style='text-align:center; margin-bottom: 1.5rem;'>"
+                "<span style='font-size:1.6rem;'>🫂</span></div>", unsafe_allow_html=True)
 
+    st.markdown('<div class="nav-btn-container">', unsafe_allow_html=True)
 
-# =========================================================
-# PAGE: HOME
-# =========================================================
-def render_home():
-    st.markdown(
-        """
-        <div class="hero">
-            <h1>🪞 Face PCA Studio</h1>
-            <p>Eksplorasi wajah manusia lewat Principal Component Analysis (PCA) dan
-            Singular Value Decomposition (SVD) — dari eigenfaces sampai kompresi gambar,
-            semuanya interaktif!</p>
+    if st.button("🏠", key="nav_home", help="Home", use_container_width=True):
+        go_to("Home")
+    if st.button("📊", key="nav_eda", help="EDA & Visualisasi", use_container_width=True):
+        go_to("EDA")
+    if st.button("🔍", key="nav_compare", help="Bandingkan Dua Wajah", use_container_width=True):
+        go_to("Compare")
+    if st.button("🗜️", key="nav_compress", help="Kompresi Gambar", use_container_width=True):
+        go_to("Compress")
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown("<div style='position:fixed; bottom:1.5rem; text-align:center; width:13rem;'>"
+                "<span style='font-size:1.4rem;'>🌙</span></div>", unsafe_allow_html=True)
+
+# ============================================================
+# HALAMAN: HOME
+# ============================================================
+def show_home():
+    # Baris atas: ABOUT card + Title + Illustration
+    col_about, col_illust = st.columns([2.1, 1])
+
+    with col_about:
+        st.markdown(f"""
+        <div class="card" style="height: 100%;">
+            <span class="about-badge">ABOUT ⓘ</span>
+            <h2 style="color:white; font-weight:700; margin-top:1rem;">Face PCA Studio</h2>
+            <p class="section-text">
+                Eksplorasi wajah manusia lewat Principal Component Analysis (PCA) dan
+                Singular Value Decomposition (SVD) — dari eigenfaces sampai kompresi gambar,
+                semuanya interaktif!
+            </p>
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        """, unsafe_allow_html=True)
 
-    c1, c2, c3 = st.columns(3)
-    n_components = pca.n_components_ if pca is not None else "-"
-    n_identities = len(np.unique(y_train)) if y_train is not None else "-"
-    n_photos = len(y_train) if y_train is not None else "-"
-    with c1:
-        st.metric("🧩 Komponen PCA", n_components)
-    with c2:
-        st.metric("🧑‍🤝‍🧑 Jumlah Identitas", n_identities)
-    with c3:
-        st.metric("🖼️ Total Foto Training", n_photos)
-
-    st.markdown("### Jelajahi Fitur")
-    f1, f2, f3 = st.columns(3)
-    features = [
-        (f1, "📊", "EDA & Visualisasi", "badge-blue",
-         "Lihat distribusi data, mean face, eigenfaces, dan seberapa banyak "
-         "variance yang ditangkap oleh PCA."),
-        (f2, "🔍", "Bandingkan Dua Wajah", "badge-purple",
-         "Upload dua foto dan cek apakah itu orang yang sama lewat cosine "
-         "similarity di ruang PCA."),
-        (f3, "🗜️", "Kompresi Gambar (SVD)", "badge-pink",
-         "Upload gambar apa saja dan lihat bagaimana SVD bisa mengompresnya "
-         "dengan berbagai tingkat kualitas."),
-    ]
-    for col, icon, title, badge_cls, desc in features:
-        with col:
-            with st.container(border=True):
-                st.markdown(
-                    f'<span class="badge {badge_cls}">{icon} {title}</span>',
-                    unsafe_allow_html=True,
-                )
-                st.write(desc)
-
-    st.markdown("### Cara Kerja Singkat")
-    with st.container(border=True):
-        st.write(
-            "Setiap foto wajah diubah jadi grayscale, disamakan pencahayaannya, "
-            "diubah ukurannya jadi 100×100 piksel, lalu diproyeksikan ke ruang "
-            "PCA hasil training. Kemiripan dua wajah diukur lewat cosine "
-            "similarity antar vektor PCA-nya — semakin mendekati 1, semakin "
-            "mirip kedua wajah tersebut."
-        )
-
-
-# =========================================================
-# PAGE: EDA & VISUALISASI
-# =========================================================
-def render_eda():
-    st.markdown(
-        """
-        <div class="hero">
-            <h1>📊 EDA & Visualisasi</h1>
-            <p>Memahami data wajah dan cara PCA "melihat" wajah manusia.</p>
+    with col_illust:
+        st.markdown("""
+        <div class="card" style="height: 100%; display:flex; align-items:center; justify-content:center;">
+            <span style="font-size: 5rem;">🧑‍🤝‍🧑</span>
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        """, unsafe_allow_html=True)
 
-    if y_train is None or pca is None:
-        st.warning("Data model tidak lengkap untuk menampilkan EDA.")
-        return
+    # Title pill di tengah (mengikuti desain, judul besar di atas)
+    st.markdown("""
+    <div class="title-pill" style="margin: 1.2rem 0;">
+        <h1>FACE PCA STUDIO</h1>
+    </div>
+    """, unsafe_allow_html=True)
 
-    with st.container(border=True):
-        st.subheader("👥 Distribusi Foto per Identitas")
-        counts = pd.Series(y_train).value_counts().sort_values(ascending=False)
-        st.bar_chart(counts)
-        st.caption(
-            f"Rata-rata {counts.mean():.1f} foto per orang dari {len(counts)} identitas."
-        )
+    st.write("")
 
-    col1, col2 = st.columns(2)
-    with col1:
+    # Baris bawah: kiri (3 feature cards) | kanan (tools + stats + cara kerja)
+    col_left, col_right = st.columns([1, 1.6])
+
+    with col_left:
+        # Feature card 1: EDA
         with st.container(border=True):
-            st.subheader("🧠 Mean Face")
-            mean_face = pca.mean_.reshape(100, 100)
-            fig, ax = plt.subplots(figsize=(3, 3))
-            ax.imshow(mean_face, cmap="gray")
-            ax.axis("off")
-            st.pyplot(fig, use_container_width=True)
-            st.caption("Wajah rata-rata dari seluruh data training.")
+            c1, c2 = st.columns([0.6, 4])
+            with c1:
+                st.markdown("<span style='font-size:1.8rem;'>📊</span>", unsafe_allow_html=True)
+            with c2:
+                st.markdown("""
+                <div class="feature-title">EDA & Visualisasi</div>
+                <div class="feature-desc">Lihat distribusi data, mean face, eigenfaces,
+                dan seberapa banyak variance yang ditangkap oleh PCA.</div>
+                """, unsafe_allow_html=True)
+            if st.button("Buka →", key="btn_eda", use_container_width=True):
+                go_to("EDA")
+                st.rerun()
 
-    with col2:
+        # Feature card 2: Bandingkan
         with st.container(border=True):
-            st.subheader("📈 Explained Variance")
-            cumvar = np.cumsum(pca.explained_variance_ratio_) * 100
-            fig, ax = plt.subplots(figsize=(4, 3))
-            ax.plot(cumvar, color="#7c3aed", linewidth=2.5)
-            ax.fill_between(range(len(cumvar)), cumvar, color="#a855f7", alpha=0.15)
-            ax.axhline(95, color="#ec4899", linestyle="--", label="95%")
-            ax.set_xlabel("Jumlah Komponen")
-            ax.set_ylabel("Variance (%)")
-            ax.legend()
-            ax.grid(alpha=0.2)
-            st.pyplot(fig, use_container_width=True)
-            st.caption(
-                f"Total variance dipertahankan: {cumvar[-1]:.1f}% dengan "
-                f"{pca.n_components_} komponen."
-            )
+            c1, c2 = st.columns([0.6, 4])
+            with c1:
+                st.markdown("<span style='font-size:1.8rem;'>🔍</span>", unsafe_allow_html=True)
+            with c2:
+                st.markdown("""
+                <div class="feature-title">Bandingkan 2 Wajah</div>
+                <div class="feature-desc">Upload dua foto dan cek apakah itu orang
+                yang sama lewat cosine similarity di ruang PCA.</div>
+                """, unsafe_allow_html=True)
+            if st.button("Buka →", key="btn_compare", use_container_width=True):
+                go_to("Compare")
+                st.rerun()
 
-    with st.container(border=True):
-        st.subheader("👻 Top Eigenfaces")
-        n_show = min(10, pca.components_.shape[0])
-        cols = st.columns(n_show)
-        for i, col in enumerate(cols):
-            with col:
-                fig, ax = plt.subplots(figsize=(2, 2))
-                ax.imshow(pca.components_[i].reshape(100, 100), cmap="gray")
-                ax.axis("off")
-                ax.set_title(f"#{i + 1}", fontsize=9)
-                st.pyplot(fig)
-
-    if X_test_pca is not None and y_test is not None and X_train_pca is not None:
+        # Feature card 3: Kompresi
         with st.container(border=True):
-            st.subheader("🎯 Akurasi Model (Pengenalan Wajah)")
-            sims_matrix = cosine_similarity(X_test_pca, X_train_pca)
-            best_idx = np.argmax(sims_matrix, axis=1)
-            preds = np.array(y_train)[best_idx]
-            acc = float(np.mean(preds == np.array(y_test)))
-            st.metric("Akurasi pada data test", f"{acc * 100:.1f}%")
-            st.caption(f"Diuji pada {len(y_test)} foto data test.")
+            c1, c2 = st.columns([0.6, 4])
+            with c1:
+                st.markdown("<span style='font-size:1.8rem;'>🗜️</span>", unsafe_allow_html=True)
+            with c2:
+                st.markdown("""
+                <div class="feature-title">Kompresi Gambar</div>
+                <div class="feature-desc">Upload gambar apa saja dan lihat bagaimana
+                SVD bisa mengompresnya dengan berbagai tingkat kualitas.</div>
+                """, unsafe_allow_html=True)
+            if st.button("Buka →", key="btn_compress", use_container_width=True):
+                go_to("Compress")
+                st.rerun()
 
+    with col_right:
+        # Tools icon + 3 stat boxes
+        st.markdown('<div class="card-dark">', unsafe_allow_html=True)
+        r1c1, r1c2, r1c3, r1c4 = st.columns([1.1, 1, 1, 1])
+        with r1c1:
+            st.markdown("<div style='text-align:center; padding-top:1rem;'>"
+                        "<span style='font-size:3rem;'>🛠️</span></div>", unsafe_allow_html=True)
+        with r1c2:
+            st.markdown(f"""
+            <div class="stat-box">
+                <div class="stat-label">Komponen PCA</div>
+                <div class="stat-value">{n_components}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with r1c3:
+            st.markdown(f"""
+            <div class="stat-box">
+                <div class="stat-label">Jumlah Identitas</div>
+                <div class="stat-value">{n_identitas}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with r1c4:
+            st.markdown(f"""
+            <div class="stat-box">
+                <div class="stat-label">Total Foto Training</div>
+                <div class="stat-value">{n_total_foto}</div>
+            </div>
+            """, unsafe_allow_html=True)
 
-# =========================================================
-# PAGE: BANDINGKAN DUA WAJAH
-# =========================================================
-def render_compare():
-    st.markdown(
-        """
-        <div class="hero">
-            <h1>🔍 Bandingkan Dua Wajah</h1>
-            <p>Upload dua foto, kita ukur seberapa "mirip" lewat cosine similarity
-            di ruang PCA.</p>
+        st.write("")
+
+        st.markdown("""
+        <div class="section-heading">Cara Kerja Singkat</div>
+        <div class="section-text">
+            Setiap foto wajah diubah jadi grayscale, disamakan pencahayaannya, diubah
+            ukurannya jadi 100×100 piksel, lalu diproyeksikan ke ruang PCA hasil training.
+            Kemiripan dua wajah diukur lewat cosine similarity antar vektor PCA-nya —
+            semakin mendekati 1, semakin mirip kedua wajah tersebut.
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        """, unsafe_allow_html=True)
 
-    col1, col2 = st.columns(2)
-    with col1:
-        with st.container(border=True):
-            foto_pertama = st.file_uploader(
-                "📸 Foto Pertama", type=["jpg", "jpeg", "png"], key="foto1"
-            )
-            if foto_pertama:
-                st.image(foto_pertama, use_container_width=True)
-    with col2:
-        with st.container(border=True):
-            foto_kedua = st.file_uploader(
-                "📸 Foto Kedua", type=["jpg", "jpeg", "png"], key="foto2"
-            )
-            if foto_kedua:
-                st.image(foto_kedua, use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    threshold = st.slider("Ambang batas kemiripan (threshold)", 0.0, 1.0, 0.50, 0.01)
+    if model_data is None:
+        st.warning("⚠️ Model belum ditemukan di `model/model.pkl`. Statistik di atas masih menunjukkan 0. "
+                   "Upload model hasil training dari Colab ke folder `model/` di repo Streamlit kamu.")
 
-    if foto_pertama and foto_kedua:
-        if st.button("🔍 Bandingkan Sekarang"):
-            face1 = preprocess(foto_pertama.getvalue())
-            face2 = preprocess(foto_kedua.getvalue())
+# ============================================================
+# HALAMAN LAIN (placeholder — akan diisi selanjutnya)
+# ============================================================
+def show_eda():
+    st.title("📊 EDA & Visualisasi")
+    st.info("Halaman ini akan diisi selanjutnya.")
 
-            z1 = pca.transform(face1.reshape(1, -1))
-            z2 = pca.transform(face2.reshape(1, -1))
-            sim = float(cosine_similarity(z1, z2)[0][0])
+def show_compare():
+    st.title("🔍 Bandingkan Dua Wajah")
+    st.info("Halaman ini akan diisi selanjutnya.")
 
-            with st.container(border=True):
-                st.subheader("Hasil")
-                st.progress(min(max(sim, 0.0), 1.0))
-                st.metric("Cosine Similarity", f"{sim:.4f}")
-                if sim >= threshold:
-                    st.success("✅ SAMA ORANG")
-                else:
-                    st.error("❌ BEDA ORANG")
+def show_compress():
+    st.title("🗜️ Kompresi Gambar (SVD)")
+    st.info("Halaman ini akan diisi selanjutnya.")
 
-
-# =========================================================
-# PAGE: KOMPRESI GAMBAR (SVD)
-# =========================================================
-def render_svd():
-    st.markdown(
-        """
-        <div class="hero">
-            <h1>🗜️ Kompresi Gambar dengan SVD</h1>
-            <p>Singular Value Decomposition memecah gambar jadi komponen-komponen
-            penting — makin sedikit komponen, makin kecil ukurannya (tapi makin
-            blur).</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    uploaded = st.file_uploader(
-        "Upload gambar (bebas, tidak harus wajah)",
-        type=["jpg", "jpeg", "png"],
-        key="svd_img",
-    )
-
-    if not uploaded:
-        st.info("⬆️ Upload gambar untuk mulai bereksperimen dengan kompresi SVD.")
-        return
-
-    img = Image.open(uploaded)
-    mode = st.radio("Mode warna", ["Grayscale", "Warna (RGB)"], horizontal=True)
-    img_arr = (
-        np.array(img.convert("L"))
-        if mode == "Grayscale"
-        else np.array(img.convert("RGB"))
-    )
-
-    h, w = img_arr.shape[:2]
-    max_k = min(h, w, 300)
-    default_k = min(50, max_k)
-    k = st.slider("Jumlah komponen (k)", 1, max_k, default_k)
-
-    if mode == "Grayscale":
-        reconstructed, singular_values = svd_compress_gray(img_arr.astype(float), k)
-    else:
-        reconstructed, singular_values = svd_compress_color(img_arr.astype(float), k)
-
-    col1, col2 = st.columns(2)
-    with col1:
-        with st.container(border=True):
-            st.subheader("Asli")
-            st.image(img_arr, use_container_width=True, clamp=True)
-    with col2:
-        with st.container(border=True):
-            st.subheader(f"Hasil Kompresi (k={k})")
-            st.image(reconstructed, use_container_width=True, clamp=True)
-
-    n_channels = 1 if mode == "Grayscale" else 3
-    original_size = h * w * n_channels
-    compressed_size = k * (h + w + 1) * n_channels
-    ratio = original_size / compressed_size
-
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Ukuran Asli (nilai)", f"{original_size:,}")
-    m2.metric("Ukuran Terkompresi (nilai)", f"{compressed_size:,}")
-    m3.metric("Rasio Kompresi", f"{ratio:.1f}x")
-
-    with st.container(border=True):
-        st.subheader("📉 Singular Value Decay")
-        fig, ax = plt.subplots(figsize=(6, 3))
-        ax.plot(singular_values, color="#db2777", linewidth=2)
-        ax.axvline(k, color="#6366f1", linestyle="--", label=f"k={k}")
-        ax.set_yscale("log")
-        ax.set_xlabel("Index")
-        ax.set_ylabel("Nilai Singular (skala log)")
-        ax.legend()
-        ax.grid(alpha=0.2)
-        st.pyplot(fig, use_container_width=True)
-        st.caption(
-            "Sebagian besar 'informasi' gambar terkonsentrasi di singular value "
-            "pertama — itulah mengapa gambar masih cukup jelas walau k kecil."
-        )
-
-
-# =========================================================
+# ============================================================
 # ROUTER
-# =========================================================
-if page == "🏠 Home":
-    render_home()
-elif page == "📊 EDA & Visualisasi":
-    render_eda()
-elif page == "🔍 Bandingkan Dua Wajah":
-    render_compare()
-elif page == "🗜️ Kompresi Gambar (SVD)":
-    render_svd()
+# ============================================================
+if st.session_state.page == "Home":
+    show_home()
+elif st.session_state.page == "EDA":
+    show_eda()
+elif st.session_state.page == "Compare":
+    show_compare()
+elif st.session_state.page == "Compress":
+    show_compress()
